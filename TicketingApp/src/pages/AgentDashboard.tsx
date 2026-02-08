@@ -2,24 +2,45 @@ import React, { useState, useEffect } from 'react';
 import { Alert, Spinner } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-// Removed unused axios import
+import axios from 'axios';
 
+// Update Ticket interface to be more flexible
 interface Ticket {
   id: string;
   ticketNumber: string;
   subject: string;
   description: string;
   clientName: string;
-  clientEmail: string;
-  priority: 'Low' | 'Medium' | 'High' | 'Critical';
-  status: 'Open' | 'In Progress' | 'Resolved' | 'Closed' | 'Pending Confirmation';
+  clientId: string;
+  priority: string; // Changed from union to string
+  status: string;   // Changed from union to string
   createdAt: string;
-  assignedTo?: string;
-  category?: string;
+  updatedAt: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
+  module?: string;
+  feature?: string;
+}
+
+interface BackendTicket {
+  id: string;
+  ticketNumber: string;
+  subject: string;
+  description: string;
+  priority: string;
+  status: string;
+  module?: string;
+  feature?: string;
+  createdAt: string;
+  updatedAt: string;
+  clientId: string;
+  clientName: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
 }
 
 const AgentDashboard: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const navigate = useNavigate();
   
   const [assignedTickets, setAssignedTickets] = useState<Ticket[]>([]);
@@ -38,190 +59,297 @@ const AgentDashboard: React.FC = () => {
     navigate('/login');
   };
 
-  // Demo data function
-  const loadDemoData = () => {
-    const demoAssignedTickets: Ticket[] = [
-      {
-        id: '1',
-        ticketNumber: 'TKT-001',
-        subject: 'Request for additional user accounts',
-        description: 'Our department is expanding and we need 5 additional user accounts for new team members.',
-        clientName: 'John Doe',
-        clientEmail: 'john@example.com',
-        priority: 'Medium',
-        status: 'In Progress',
-        createdAt: '2024-01-20T10:30:00',
-        assignedTo: user?.email
-      },
-      {
-        id: '2',
-        ticketNumber: 'TKT-002',
-        subject: 'Password reset not sending email',
-        description: 'Multiple users are not receiving password reset emails when requesting password resets.',
-        clientName: 'Jane Smith',
-        clientEmail: 'jane@example.com',
-        priority: 'High',
-        status: 'In Progress',
-        createdAt: '2024-01-19T14:20:00',
-        assignedTo: user?.email
-      }
-    ];
-
-    const demoAvailableTickets: Ticket[] = [
-      {
-        id: '3',
-        ticketNumber: 'TKT-003',
-        subject: 'Cannot access training module',
-        description: 'Loading spinner shows indefinitely when clicking on training module in the portal.',
-        clientName: 'Bob Wilson',
-        clientEmail: 'bob@example.com',
-        priority: 'High',
-        status: 'Open',
-        createdAt: '2024-01-18T09:15:00'
-      },
-      {
-        id: '4',
-        ticketNumber: 'TKT-004',
-        subject: 'Database connection timeout',
-        description: 'Application times out when connecting to the database after recent updates.',
-        clientName: 'Alice Johnson',
-        clientEmail: 'alice@example.com',
-        priority: 'Critical',
-        status: 'Open',
-        createdAt: '2024-01-17T16:45:00'
-      },
-      {
-        id: '5',
-        ticketNumber: 'TKT-005',
-        subject: 'Mobile app login issue',
-        description: 'Users cannot login to the mobile app on iOS devices after updating to version 2.5.',
-        clientName: 'Charlie Brown',
-        clientEmail: 'charlie@example.com',
-        priority: 'Medium',
-        status: 'Open',
-        createdAt: '2024-01-16T11:20:00'
-      }
-    ];
-
-    setAssignedTickets(demoAssignedTickets);
-    setAvailableTickets(demoAvailableTickets);
-    
-    const resolvedTickets = demoAssignedTickets.filter(t => t.status === 'Resolved').length;
-    const inProgressTickets = demoAssignedTickets.filter(t => t.status === 'In Progress').length;
-    
-    setStats({
-      myTickets: demoAssignedTickets.length,
-      inProgress: inProgressTickets,
-      resolved: resolvedTickets,
-      available: demoAvailableTickets.length
-    });
+  // Helper function to validate ticket status
+  const isValidStatus = (status: string): boolean => {
+    const validStatuses = ['open', 'in_progress', 'resolved', 'closed', 'pending'];
+    return validStatuses.includes(status.toLowerCase());
   };
 
+  // Helper function to validate ticket priority
+  const isValidPriority = (priority: string): boolean => {
+    const validPriorities = ['low', 'medium', 'high', 'critical'];
+    return validPriorities.includes(priority.toLowerCase());
+  };
+
+  // Fetch real tickets from backend
   useEffect(() => {
     const fetchTickets = async () => {
-      setIsLoading(true);
-      
+      if (!token || !user) {
+        setError('Authentication required. Please login again.');
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        // For now, use demo data
-        console.log('Using demo ticket data for agent dashboard');
-        loadDemoData();
+        setIsLoading(true);
         setError('');
+        
+        const API_URL = 'http://localhost:5266/api';
+        
+        // Fetch all tickets for the current tenant
+        const response = await axios.get(`${API_URL}/tickets`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.data && Array.isArray(response.data)) {
+          const tickets: BackendTicket[] = response.data;
+          
+          // Transform backend tickets to frontend format with validation
+          const transformedTickets: Ticket[] = tickets.map(ticket => {
+            // Validate and normalize status
+            const status = isValidStatus(ticket.status) 
+              ? ticket.status.toLowerCase()
+              : 'open'; // Default to 'open' if invalid
+              
+            // Validate and normalize priority
+            const priority = isValidPriority(ticket.priority)
+              ? ticket.priority.toLowerCase()
+              : 'medium'; // Default to 'medium' if invalid
+
+            return {
+              id: ticket.id,
+              ticketNumber: ticket.ticketNumber,
+              subject: ticket.subject,
+              description: ticket.description,
+              clientName: ticket.clientName,
+              clientId: ticket.clientId,
+              priority,
+              status,
+              createdAt: ticket.createdAt,
+              updatedAt: ticket.updatedAt,
+              assignedAgentId: ticket.assignedAgentId,
+              assignedAgentName: ticket.assignedAgentName,
+              module: ticket.module,
+              feature: ticket.feature
+            };
+          });
+
+          // Separate tickets
+          const agentAssigned = transformedTickets.filter(t => 
+            t.assignedAgentId === user.id && 
+            t.status !== 'closed' && 
+            t.status !== 'resolved'
+          );
+          
+          const unassigned = transformedTickets.filter(t => 
+            (!t.assignedAgentId || t.assignedAgentId === '') && 
+            t.status === 'open'
+          );
+
+          setAssignedTickets(agentAssigned);
+          setAvailableTickets(unassigned);
+          
+          // Calculate stats
+          const inProgressTickets = agentAssigned.filter(t => t.status === 'in_progress').length;
+          const resolvedTickets = transformedTickets.filter(t => 
+            t.assignedAgentId === user.id && t.status === 'resolved'
+          ).length;
+          
+          setStats({
+            myTickets: agentAssigned.length,
+            inProgress: inProgressTickets,
+            resolved: resolvedTickets,
+            available: unassigned.length
+          });
+          
+        } else {
+          setError('Invalid response format from server');
+        }
         
       } catch (err: any) {
         console.error('Error fetching tickets:', err);
-        setError('Using demo data. Backend connection failed.');
-        loadDemoData(); // Fallback to demo data
+        
+        if (err.response?.status === 401) {
+          setError('Session expired. Please login again.');
+          logout();
+          navigate('/login');
+        } else if (err.response?.data?.message) {
+          setError(err.response.data.message);
+        } else {
+          setError('Failed to load tickets. Please try again.');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchTickets();
-  }, [user]);
+    
+    // Refresh tickets every 30 seconds
+    const intervalId = setInterval(fetchTickets, 30000);
+    return () => clearInterval(intervalId);
+  }, [token, user, navigate, logout]);
 
   const handleAssignTicket = async (ticketId: string) => {
     try {
-      // Find the ticket to assign
-      const ticketToAssign = availableTickets.find(t => t.id === ticketId);
-      if (ticketToAssign) {
-        const updatedTicket: Ticket = {
-          ...ticketToAssign,
-          assignedTo: user?.email,
-          status: 'In Progress'
-        };
-        
-        // Remove from available, add to assigned
-        setAvailableTickets(prev => prev.filter(t => t.id !== ticketId));
-        setAssignedTickets(prev => [...prev, updatedTicket]);
-        
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          myTickets: prev.myTickets + 1,
-          available: prev.available - 1,
-          inProgress: prev.inProgress + 1
-        }));
-        
-        alert(`Ticket ${ticketToAssign.ticketNumber} assigned to you successfully!`);
+      if (!token) {
+        setError('Authentication required');
+        return;
       }
-    } catch (err) {
+
+      const API_URL = 'http://localhost:5266/api';
+      
+      // Update ticket assignment on backend
+      const response = await axios.put(
+        `${API_URL}/tickets/${ticketId}`,
+        {
+          assignedAgentId: user?.id,
+          status: 'in_progress'
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data) {
+        // Find the ticket in available tickets
+        const ticketToAssign = availableTickets.find(t => t.id === ticketId);
+        if (ticketToAssign) {
+          const updatedTicket: Ticket = {
+            ...ticketToAssign,
+            assignedAgentId: user?.id,
+            assignedAgentName: user?.fullName || user?.email || 'You',
+            status: 'in_progress',
+            updatedAt: new Date().toISOString()
+          };
+          
+          // Update local state
+          setAvailableTickets(prev => prev.filter(t => t.id !== ticketId));
+          setAssignedTickets(prev => [...prev, updatedTicket]);
+          
+          // Update stats
+          setStats(prev => ({
+            ...prev,
+            myTickets: prev.myTickets + 1,
+            available: prev.available - 1,
+            inProgress: prev.inProgress + 1
+          }));
+          
+          alert(`Ticket ${ticketToAssign.ticketNumber} assigned to you successfully!`);
+        }
+      }
+    } catch (err: any) {
       console.error('Error assigning ticket:', err);
-      alert('Failed to assign ticket. Please try again.');
+      
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+        logout();
+        navigate('/login');
+      } else {
+        alert('Failed to assign ticket. Please try again.');
+      }
     }
   };
 
   const handleMarkResolved = async (ticketId: string) => {
     try {
-      // Find the ticket to mark as resolved
-      const ticketIndex = assignedTickets.findIndex(t => t.id === ticketId);
-      if (ticketIndex !== -1) {
-        const updatedTickets = [...assignedTickets];
-        updatedTickets[ticketIndex] = { 
-          ...updatedTickets[ticketIndex], 
-          status: 'Resolved'
-        };
+      if (!token) {
+        setError('Authentication required');
+        return;
+      }
+
+      const API_URL = 'http://localhost:5266/api';
+      
+      // Update ticket status on backend
+      const response = await axios.put(
+        `${API_URL}/tickets/${ticketId}`,
+        {
+          status: 'resolved'
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data) {
+        // Update local state
+        const updatedTickets = assignedTickets.map(ticket => 
+          ticket.id === ticketId 
+            ? { ...ticket, status: 'resolved', updatedAt: new Date().toISOString() }
+            : ticket
+        );
         
         setAssignedTickets(updatedTickets);
         
         // Update stats
-        setStats(prev => ({
-          ...prev,
-          inProgress: prev.inProgress - 1,
-          resolved: prev.resolved + 1
-        }));
+        const ticket = assignedTickets.find(t => t.id === ticketId);
+        if (ticket && ticket.status === 'in_progress') {
+          setStats(prev => ({
+            ...prev,
+            inProgress: prev.inProgress - 1,
+            resolved: prev.resolved + 1
+          }));
+        } else {
+          setStats(prev => ({
+            ...prev,
+            resolved: prev.resolved + 1
+          }));
+        }
         
-        alert(`Ticket ${updatedTickets[ticketIndex].ticketNumber} marked as resolved!`);
+        alert(`Ticket marked as resolved!`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error resolving ticket:', err);
-      alert('Failed to mark ticket as resolved. Please try again.');
+      
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+        logout();
+        navigate('/login');
+      } else {
+        alert('Failed to mark ticket as resolved. Please try again.');
+      }
     }
   };
 
-  const getPriorityColor = (priority: Ticket['priority']): string => {
-    switch (priority) {
-      case 'Critical': return 'bg-red-100 text-red-800 border border-red-200';
-      case 'High': return 'bg-orange-100 text-orange-800 border border-orange-200';
-      case 'Medium': return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
-      case 'Low': return 'bg-green-100 text-green-800 border border-green-200';
+  const getPriorityColor = (priority: string): string => {
+    switch (priority.toLowerCase()) {
+      case 'critical': return 'bg-red-100 text-red-800 border border-red-200';
+      case 'high': return 'bg-orange-100 text-orange-800 border border-orange-200';
+      case 'medium': return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+      case 'low': return 'bg-green-100 text-green-800 border border-green-200';
       default: return 'bg-gray-100 text-gray-800 border border-gray-200';
     }
   };
 
-  const getStatusColor = (status: Ticket['status']): string => {
-    switch (status) {
-      case 'Open': return 'bg-blue-100 text-blue-800 border border-blue-200';
-      case 'In Progress': return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
-      case 'Resolved': return 'bg-green-100 text-green-800 border border-green-200';
-      case 'Closed': return 'bg-gray-100 text-gray-800 border border-gray-200';
-      case 'Pending Confirmation': return 'bg-purple-100 text-purple-800 border border-purple-200';
+  const getStatusColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'open': return 'bg-blue-100 text-blue-800 border border-blue-200';
+      case 'in_progress': return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+      case 'resolved': return 'bg-green-100 text-green-800 border border-green-200';
+      case 'closed': return 'bg-gray-100 text-gray-800 border border-gray-200';
       default: return 'bg-gray-100 text-gray-800 border border-gray-200';
     }
+  };
+
+  const formatDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatStatus = (status: string): string => {
+    return status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ');
   };
 
   const displayName = user?.fullName || user?.email || 'Agent';
 
-  if (isLoading) {
+  if (isLoading && assignedTickets.length === 0 && availableTickets.length === 0) {
     return (
       <div className="d-flex justify-content-center align-items-center min-vh-100">
         <Spinner animation="border" variant="primary" />
@@ -301,7 +429,7 @@ const AgentDashboard: React.FC = () => {
           <div className="p-4">
             {assignedTickets.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                No tickets assigned to you yet.
+                No tickets assigned to you yet. Assign tickets from the available tickets below.
               </div>
             ) : (
               <div className="space-y-4">
@@ -316,25 +444,30 @@ const AgentDashboard: React.FC = () => {
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 line-clamp-2">{ticket.description}</p>
+                        {ticket.module && (
+                          <span className="inline-block bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded mt-1">
+                            Module: {ticket.module}
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col gap-2 ml-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${getPriorityColor(ticket.priority)}`}>
-                          {ticket.priority}
+                          {ticket.priority.toUpperCase()}
                         </span>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(ticket.status)}`}>
-                          {ticket.status}
+                          {formatStatus(ticket.status)}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
                       <div className="text-sm text-gray-600">
-                        <span className="font-medium">Client:</span> {ticket.clientName} • {ticket.clientEmail}
+                        <span className="font-medium">Client:</span> {ticket.clientName}
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs text-gray-500">
-                          Created: {new Date(ticket.createdAt).toLocaleDateString()}
+                          Created: {formatDate(ticket.createdAt)}
                         </span>
-                        {ticket.status === 'In Progress' && (
+                        {ticket.status === 'in_progress' && (
                           <button 
                             onClick={() => handleMarkResolved(ticket.id)}
                             className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded hover:bg-green-700 transition-colors"
@@ -374,19 +507,24 @@ const AgentDashboard: React.FC = () => {
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 line-clamp-2">{ticket.description}</p>
+                        {ticket.module && (
+                          <span className="inline-block bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded mt-1">
+                            Module: {ticket.module}
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col gap-2 ml-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${getPriorityColor(ticket.priority)}`}>
-                          {ticket.priority}
+                          {ticket.priority.toUpperCase()}
                         </span>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(ticket.status)}`}>
-                          {ticket.status}
+                          {formatStatus(ticket.status)}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
                       <div className="text-sm text-gray-600">
-                        <span className="font-medium">Client:</span> {ticket.clientName} • {ticket.clientEmail}
+                        <span className="font-medium">Client:</span> {ticket.clientName}
                       </div>
                       <button 
                         onClick={() => handleAssignTicket(ticket.id)}
@@ -407,7 +545,7 @@ const AgentDashboard: React.FC = () => {
       <button 
         className="fixed bottom-6 right-6 z-50 w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 transition-colors"
         aria-label="Help"
-        onClick={() => alert('Need help? Contact support@example.com')}
+        onClick={() => alert('Need help? Contact support@speccon.com')}
         title="Get Help"
       >
         ?

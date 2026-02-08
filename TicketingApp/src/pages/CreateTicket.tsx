@@ -1,11 +1,15 @@
 import React, { useState, ChangeEvent, FormEvent } from 'react';
-import { Container, Row, Col, Card, Form, Button, Alert, ProgressBar } from 'react-bootstrap';
+import { 
+  Container, Row, Col, Card, Form, Button, Alert, 
+  Badge, Accordion 
+} from 'react-bootstrap';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import ScreenRecorder from '../components/ScreenRecorder';
 
 const CreateTicket: React.FC = () => {
-  const { user, token, isAuthenticated, logout } = useAuth();
+  const { token, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   
   const [formData, setFormData] = useState({
@@ -22,38 +26,43 @@ const CreateTicket: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'form' | 'recorder'>('form');
+  const [recordedVideos, setRecordedVideos] = useState<File[]>([]);
 
   const categories = [
     {
       id: 1,
-      title: 'Find Support',
-      description: 'Get help on how to use a feature',
-      icon: '❓',
-      value: 'support'
+      title: 'Bug Report',
+      description: 'Report a system error or unexpected behavior',
+      icon: '🐛',
+      value: 'bug'
     },
     {
       id: 2,
-      title: 'Report an Error',
-      description: 'There is an issue and the system is not working',
-      icon: '⚠️',
-      value: 'error'
+      title: 'Feature Request',
+      description: 'Suggest a new feature or improvement',
+      icon: '💡',
+      value: 'feature'
     },
     {
       id: 3,
-      title: 'Make a Suggestion',
-      description: 'Share your ideas and suggestions',
-      icon: '💡',
-      value: 'suggestion'
+      title: 'How-to Question',
+      description: 'Ask how to accomplish something in the system',
+      icon: '❓',
+      value: 'question'
     }
   ];
 
   const modules = [
-    { value: '', label: 'Select a feature or module...' },
+    { value: '', label: 'Select module where issue occurs...' },
     { value: 'course-library', label: 'Course Library' },
     { value: 'employment-equity', label: 'Employment Equity' },
-    { value: 'teams', label: 'Teams' },
-    { value: 'billing', label: 'Billing' },
+    { value: 'teams', label: 'Teams & Users' },
+    { value: 'billing', label: 'Billing & Payments' },
     { value: 'account', label: 'Account Settings' },
+    { value: 'dashboard', label: 'Dashboard' },
+    { value: 'mobile-app', label: 'Mobile App' },
+    { value: 'api', label: 'API Integration' },
     { value: 'other', label: 'Other' }
   ];
 
@@ -73,10 +82,10 @@ const CreateTicket: React.FC = () => {
     if (e.target.files) {
       const filesArray = Array.from(e.target.files);
       
-      // Validate file sizes
+      // Validate file sizes (100MB max for videos)
       const validFiles = filesArray.filter(file => {
-        if (file.size > 10 * 1024 * 1024) {
-          setError(`File ${file.name} is too large (max 10MB)`);
+        if (file.size > 100 * 1024 * 1024) {
+          setError(`File ${file.name} is too large (max 100MB)`);
           return false;
         }
         return true;
@@ -86,8 +95,28 @@ const CreateTicket: React.FC = () => {
     }
   };
 
-  const removeFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  const handleRecordingComplete = (recordingBlob: Blob, fileName: string) => {
+    // Convert blob to file
+    const videoFile = new File([recordingBlob], fileName, {
+      type: 'video/webm',
+      lastModified: Date.now()
+    });
+    
+    setRecordedVideos(prev => [...prev, videoFile]);
+    setSelectedFiles(prev => [...prev, videoFile]);
+    
+    // Show success message
+    setSuccess(`🎥 Screen recording "${fileName}" has been saved and will be attached to your ticket.`);
+    
+    // Switch back to form tab
+    setTimeout(() => {
+      setActiveTab('form');
+    }, 2000);
+  };
+
+  const removeFile = (fileIndex: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== fileIndex));
+    setRecordedVideos(prev => prev.filter((_, i) => i !== fileIndex));
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -97,14 +126,27 @@ const CreateTicket: React.FC = () => {
     setIsSubmitting(true);
     setUploadProgress(0);
 
-    if (!formData.subject.trim() || !formData.description.trim()) {
-      setError('Please fill in all required fields');
+    // Validation
+    if (!formData.subject.trim()) {
+      setError('Please enter a subject for your ticket');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!formData.description.trim()) {
+      setError('Please describe the issue or request');
       setIsSubmitting(false);
       return;
     }
 
     if (!selectedCategory) {
-      setError('Please select a ticket category');
+      setError('Please select a category for your ticket');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!formData.module) {
+      setError('Please select the module where the issue occurs');
       setIsSubmitting(false);
       return;
     }
@@ -124,9 +166,10 @@ const CreateTicket: React.FC = () => {
       formDataToSend.append('Module', formData.module);
       formDataToSend.append('Category', selectedCategory);
       
-      if (selectedFiles.length > 0) {
-        formDataToSend.append('File', selectedFiles[0]);
-      }
+      // Add all files
+      selectedFiles.forEach((file) => {
+        formDataToSend.append(`Files`, file);
+      });
 
       const response = await axios.post('http://localhost:5266/api/tickets', formDataToSend, {
         headers: {
@@ -142,7 +185,7 @@ const CreateTicket: React.FC = () => {
       });
 
       if (response.data) {
-        setSuccess(`Ticket #${response.data.ticketNumber} created successfully! Redirecting...`);
+        setSuccess(`✅ Ticket #${response.data.ticketNumber} created successfully! Redirecting to dashboard...`);
         
         setTimeout(() => {
           navigate('/client/home');
@@ -192,232 +235,415 @@ const CreateTicket: React.FC = () => {
             />
             
             <Card.Body className="p-4 p-md-5">
-              <div className="mb-5">
+              <div className="mb-5 text-center">
                 <h1 className="display-6 fw-bold text-primary mb-2">
                   Create Support Ticket
                 </h1>
                 <p className="text-muted fs-5">
-                  Please provide detailed information to help us assist you effectively.
+                  Get help from our technical team. Screen recordings help us understand your issue better.
                 </p>
               </div>
 
-              {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
-              {success && <Alert variant="success" className="mb-4">{success}</Alert>}
+              {/* Quick Action Buttons */}
+              <div className="d-flex flex-wrap gap-3 justify-content-center mb-5">
+                <Button
+                  variant={activeTab === 'form' ? 'primary' : 'outline-primary'}
+                  size="lg"
+                  onClick={() => setActiveTab('form')}
+                  className="px-4"
+                >
+                  <i className="fas fa-edit me-2"></i>
+                  Write Ticket
+                </Button>
+                <Button
+                  variant={activeTab === 'recorder' ? 'warning' : 'outline-warning'}
+                  size="lg"
+                  onClick={() => setActiveTab('recorder')}
+                  className="px-4"
+                >
+                  <i className="fas fa-video me-2"></i>
+                  Record Screen
+                </Button>
+              </div>
 
-              <Form onSubmit={handleSubmit}>
-                {/* Category Selection */}
-                <Form.Group className="mb-5">
-                  <Form.Label className="fw-bold text-uppercase small text-muted mb-3">
-                    What do you need help with?
-                  </Form.Label>
-                  <Row className="g-3">
-                    {categories.map((category) => (
-                      <Col md={4} key={category.id}>
-                        <Card
-                          className={`h-100 cursor-pointer border-2 transition-all ${
-                            selectedCategory === category.value 
-                              ? 'border-primary bg-primary bg-opacity-5' 
-                              : 'border-light-subtle'
-                          }`}
-                          onClick={() => handleCategorySelect(category.value)}
+              {/* Main Content Area */}
+              {activeTab === 'form' ? (
+                <>
+                  {/* Standard Ticket Form */}
+                  {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
+                  {success && <Alert variant="success" className="mb-4">{success}</Alert>}
+
+                  <Form onSubmit={handleSubmit}>
+                    {/* Category Selection */}
+                    <Form.Group className="mb-5">
+                      <Form.Label className="fw-bold text-uppercase small text-muted mb-3">
+                        What type of ticket is this?
+                      </Form.Label>
+                      <Row className="g-3">
+                        {categories.map((category) => (
+                          <Col md={4} key={category.id}>
+                            <Card
+                              className={`h-100 cursor-pointer border-2 transition-all ${
+                                selectedCategory === category.value 
+                                  ? 'border-primary bg-primary bg-opacity-5' 
+                                  : 'border-light-subtle'
+                              }`}
+                              onClick={() => handleCategorySelect(category.value)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <Card.Body className="p-4 text-center">
+                                <div 
+                                  className="rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
+                                  style={{ 
+                                    width: '60px', 
+                                    height: '60px',
+                                    backgroundColor: selectedCategory === category.value 
+                                      ? 'rgba(0, 102, 204, 0.1)' 
+                                      : '#f8f9fa',
+                                    fontSize: '1.8rem'
+                                  }}
+                                >
+                                  {category.icon}
+                                </div>
+                                <Card.Title className="fw-bold mb-2">
+                                  {category.title}
+                                </Card.Title>
+                                <Card.Text className="text-muted small">
+                                  {category.description}
+                                </Card.Text>
+                              </Card.Body>
+                            </Card>
+                          </Col>
+                        ))}
+                      </Row>
+                    </Form.Group>
+
+                    {/* Priority Selection */}
+                    <Form.Group className="mb-5">
+                      <Form.Label className="fw-bold text-uppercase small text-muted mb-3">
+                        How urgent is this issue?
+                      </Form.Label>
+                      <div className="d-flex flex-wrap gap-2">
+                        {[
+                          { value: 'low', label: 'Low', color: 'secondary', icon: '🐢' },
+                          { value: 'medium', label: 'Medium', color: 'primary', icon: '⚡' },
+                          { value: 'high', label: 'High', color: 'warning', icon: '🚨' },
+                          { value: 'critical', label: 'Critical', color: 'danger', icon: '🔥' }
+                        ].map((priority) => (
+                          <Button
+                            key={priority.value}
+                            type="button"
+                            variant={formData.priority === priority.value ? priority.color : `outline-${priority.color}`}
+                            className="rounded-pill px-4 py-2"
+                            onClick={() => setFormData(prev => ({ ...prev, priority: priority.value }))}
+                          >
+                            <span className="me-2">{priority.icon}</span>
+                            {priority.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </Form.Group>
+
+                    {/* Module Selection */}
+                    <Form.Group className="mb-5">
+                      <Form.Label className="fw-bold text-uppercase small text-muted mb-2">
+                        Where does this issue occur?
+                      </Form.Label>
+                      <Form.Select
+                        name="module"
+                        value={formData.module}
+                        onChange={handleChange}
+                        className="py-3 border-2"
+                        required
+                      >
+                        {modules.map((module) => (
+                          <option key={module.value} value={module.value}>
+                            {module.label}
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </Form.Group>
+
+                    {/* Subject */}
+                    <Form.Group className="mb-5">
+                      <Form.Label className="fw-bold text-uppercase small text-muted mb-2">
+                        Brief description of the issue
+                      </Form.Label>
+                      <Form.Control
+                        type="text"
+                        name="subject"
+                        value={formData.subject}
+                        onChange={handleChange}
+                        placeholder="e.g., 'Cannot generate EE report' or 'Login page shows error'"
+                        className="py-3 border-2"
+                        required
+                      />
+                      <Form.Text className="text-muted">
+                        Keep it short and descriptive (max 100 characters)
+                      </Form.Text>
+                    </Form.Group>
+
+                    {/* Description */}
+                    <Form.Group className="mb-5">
+                      <Form.Label className="fw-bold text-uppercase small text-muted mb-2">
+                        Detailed description
+                      </Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        name="description"
+                        value={formData.description}
+                        onChange={handleChange}
+                        placeholder={`Please include:
+• Steps to reproduce the issue
+• What you expected to happen
+• What actually happened
+• Any error messages you saw`}
+                        rows={6}
+                        className="py-3 border-2"
+                        required
+                      />
+                      <Form.Text className="text-muted">
+                        The more details you provide, the faster we can help you.
+                      </Form.Text>
+                    </Form.Group>
+
+                    {/* File Upload Section */}
+                    <Form.Group className="mb-5">
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                          <Form.Label className="fw-bold text-uppercase small text-muted mb-0">
+                            Attachments
+                          </Form.Label>
+                          <p className="small text-muted mb-0">
+                            Screenshots, screen recordings, or documents (Max 100MB each)
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline-warning"
+                          onClick={() => setActiveTab('recorder')}
+                        >
+                          <i className="fas fa-video me-2"></i>
+                          Record Screen
+                        </Button>
+                      </div>
+                      
+                      <div className="border-2 border-dashed rounded-3 p-5 text-center bg-light">
+                        <div className="mb-3">
+                          <i className="fas fa-cloud-upload-alt fa-3x text-primary"></i>
+                        </div>
+                        <p className="mb-2">
+                          <span className="fw-bold text-primary">Drag & drop files here</span> or click to browse
+                        </p>
+                        <p className="small text-muted mb-3">
+                          Supports: Images (PNG, JPG), Videos (MP4, WEBM), Documents (PDF, DOC)
+                        </p>
+                        
+                        <Form.Control
+                          type="file"
+                          id="file-upload"
+                          onChange={handleFileChange}
+                          accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.webm,.mp4"
+                          className="d-none"
+                          multiple
+                        />
+                        
+                        <Form.Label 
+                          htmlFor="file-upload" 
+                          className="btn btn-primary mt-2"
                           style={{ cursor: 'pointer' }}
                         >
-                          <Card.Body className="p-4 text-center">
-                            <div 
-                              className="rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
-                              style={{ 
-                                width: '60px', 
-                                height: '60px',
-                                backgroundColor: selectedCategory === category.value 
-                                  ? 'rgba(0, 102, 204, 0.1)' 
-                                  : '#f8f9fa',
-                                fontSize: '1.8rem'
-                              }}
-                            >
-                              {category.icon}
-                            </div>
-                            <Card.Title className="fw-bold mb-2">
-                              {category.title}
-                            </Card.Title>
-                            <Card.Text className="text-muted small">
-                              {category.description}
-                            </Card.Text>
-                          </Card.Body>
-                        </Card>
-                      </Col>
-                    ))}
-                  </Row>
-                </Form.Group>
+                          <i className="fas fa-plus me-2"></i>
+                          Add Files
+                        </Form.Label>
+                      </div>
+                      
+                      {selectedFiles.length > 0 && (
+                        <div className="mt-4">
+                          <h6 className="mb-3">Attached Files ({selectedFiles.length}):</h6>
+                          <div className="list-group">
+                            {selectedFiles.map((file, fileIndex) => (
+                              <div key={fileIndex} className="list-group-item d-flex justify-content-between align-items-center">
+                                <div className="d-flex align-items-center">
+                                  {file.type.startsWith('video/') ? (
+                                    <i className="fas fa-video text-danger me-3"></i>
+                                  ) : file.type.startsWith('image/') ? (
+                                    <i className="fas fa-image text-success me-3"></i>
+                                  ) : (
+                                    <i className="fas fa-file text-primary me-3"></i>
+                                  )}
+                                  <div>
+                                    <div className="fw-bold text-truncate" style={{ maxWidth: '300px' }}>
+                                      {file.name}
+                                      {recordedVideos.includes(file) && (
+                                        <Badge bg="danger" className="ms-2">
+                                          <i className="fas fa-video me-1"></i>
+                                          Recording
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <small className="text-muted">
+                                      {(file.size / 1024 / 1024).toFixed(2)} MB • 
+                                      {file.type.split('/')[1].toUpperCase()}
+                                    </small>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="outline-danger"
+                                  size="sm"
+                                  onClick={() => removeFile(fileIndex)}
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </Form.Group>
 
-                {/* Priority Selection */}
-                <Form.Group className="mb-5">
-                  <Form.Label className="fw-bold text-uppercase small text-muted mb-3">
-                    Priority Level
-                  </Form.Label>
-                  <div className="d-flex flex-wrap gap-2">
-                    {['low', 'medium', 'high', 'critical'].map((priority) => (
+                    {/* Submit Button */}
+                    <div className="pt-4 border-top">
                       <Button
-                        key={priority}
-                        type="button"
-                        variant={formData.priority === priority ? 
-                          (priority === 'low' ? 'secondary' : 
-                           priority === 'medium' ? 'primary' :
-                           priority === 'high' ? 'warning' : 'danger') : 
-                          'outline-secondary'}
-                        className="rounded-pill px-4 py-2"
-                        onClick={() => setFormData(prev => ({ ...prev, priority }))}
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="w-100 py-3 fw-bold fs-5"
+                        style={{
+                          background: 'linear-gradient(135deg, #0066cc 0%, #004d99 100%)',
+                          border: 'none'
+                        }}
                       >
-                        {priority.charAt(0).toUpperCase() + priority.slice(1)}
+                        {isSubmitting ? (
+                          <>
+                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            {uploadProgress > 0 ? `Uploading... ${uploadProgress}%` : 'Creating Ticket...'}
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-paper-plane me-2"></i>
+                            Submit Ticket
+                          </>
+                        )}
                       </Button>
-                    ))}
-                  </div>
-                </Form.Group>
-
-                {/* Module Selection */}
-                <Form.Group className="mb-5">
-                  <Form.Label className="fw-bold text-uppercase small text-muted mb-2">
-                    Related Feature / Module
-                  </Form.Label>
-                  <Form.Select
-                    name="module"
-                    value={formData.module}
-                    onChange={handleChange}
-                    className="py-3 border-2"
-                    required
-                  >
-                    {modules.map((module) => (
-                      <option key={module.value} value={module.value}>
-                        {module.label}
-                      </option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
-
-                {/* Subject */}
-                <Form.Group className="mb-5">
-                  <Form.Label className="fw-bold text-uppercase small text-muted mb-2">
-                    Subject / Title
-                  </Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="subject"
-                    value={formData.subject}
-                    onChange={handleChange}
-                    placeholder="Brief summary of the issue"
-                    className="py-3 border-2"
-                    required
-                  />
-                </Form.Group>
-
-                {/* Description */}
-                <Form.Group className="mb-5">
-                  <Form.Label className="fw-bold text-uppercase small text-muted mb-2">
-                    Description
-                  </Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    name="description"
-                    value={formData.description}
-                    onChange={handleChange}
-                    placeholder="Please provide detailed information about your request..."
-                    rows={6}
-                    className="py-3 border-2"
-                    required
-                  />
-                </Form.Group>
-
-                {/* File Upload */}
-                <Form.Group className="mb-5">
-                  <Form.Label className="fw-bold text-uppercase small text-muted mb-3">
-                    Attachments (Optional - Max 10MB)
-                  </Form.Label>
-                  <div className="border-2 border-dashed rounded-3 p-5 text-center bg-light">
-                    <div className="mb-3">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#6c757d" viewBox="0 0 16 16">
-                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
-                        <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
-                      </svg>
                     </div>
-                    <p className="mb-2">
-                      <span className="fw-bold text-primary">Click to upload</span> or drag and drop
-                    </p>
-                    <p className="small text-muted mb-3">
-                      PNG, JPG, GIF, PDF, DOC (MAX. 10MB)
-                    </p>
+                  </Form>
+                </>
+              ) : (
+                <>
+                  {/* Screen Recorder Tab */}
+                  <div className="mb-4">
+                    <Alert variant="info">
+                      <h5 className="alert-heading">
+                        <i className="fas fa-desktop me-2"></i>
+                        Screen Recording Tool
+                      </h5>
+                      <p>
+                        Record your screen to show developers exactly what's happening. 
+                        This is especially helpful for:
+                      </p>
+                      <ul className="mb-0">
+                        <li>Showing error messages that appear</li>
+                        <li>Demonstrating steps to reproduce a bug</li>
+                        <li>Showing unexpected system behavior</li>
+                        <li>Explaining complex configuration issues</li>
+                      </ul>
+                    </Alert>
                     
-                    <Form.Control
-                      type="file"
-                      id="file-upload"
-                      onChange={handleFileChange}
-                      accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx"
-                      className="d-none"
+                    <ScreenRecorder
+                      onRecordingComplete={handleRecordingComplete}
+                      ticketNumber="NEW"
                     />
                     
-                    <Form.Label 
-                      htmlFor="file-upload" 
-                      className="btn btn-outline-primary mt-2"
-                      style={{ cursor: 'pointer' }}
-                    >
-                      Choose File
-                    </Form.Label>
-                    
-                    {uploadProgress > 0 && uploadProgress < 100 && (
-                      <div className="mt-3">
-                        <ProgressBar now={uploadProgress} label={`${uploadProgress}%`} />
-                      </div>
-                    )}
-                  </div>
-                  
-                  {selectedFiles.length > 0 && (
-                    <div className="mt-3">
-                      <h6 className="mb-2">Selected File:</h6>
-                      <ul className="list-group">
-                        {selectedFiles.map((file, index) => (
-                          <li key={index} className="list-group-item d-flex justify-content-between align-items-center">
-                            <span className="text-truncate" style={{ maxWidth: '300px' }}>
-                              {file.name} ({(file.size / 1024).toFixed(2)} KB)
-                            </span>
-                            <Button
-                              variant="outline-danger"
-                              size="sm"
-                              onClick={() => removeFile(index)}
-                            >
-                              Remove
-                            </Button>
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="mt-4 p-4 bg-light rounded">
+                      <h6 className="fw-bold mb-3">
+                        <i className="fas fa-lightbulb me-2 text-warning"></i>
+                        Tips for Great Screen Recordings
+                      </h6>
+                      <Row>
+                        <Col md={4}>
+                          <div className="d-flex align-items-start mb-3">
+                            <div className="bg-primary bg-opacity-10 rounded-circle p-2 me-3">
+                              <i className="fas fa-1 text-primary"></i>
+                            </div>
+                            <div>
+                              <strong>Be Specific</strong>
+                              <p className="small text-muted mb-0">Focus on the exact issue area</p>
+                            </div>
+                          </div>
+                        </Col>
+                        <Col md={4}>
+                          <div className="d-flex align-items-start mb-3">
+                            <div className="bg-primary bg-opacity-10 rounded-circle p-2 me-3">
+                              <i className="fas fa-2 text-primary"></i>
+                            </div>
+                            <div>
+                              <strong>Talk Through It</strong>
+                              <p className="small text-muted mb-0">Explain what you're doing and seeing</p>
+                            </div>
+                          </div>
+                        </Col>
+                        <Col md={4}>
+                          <div className="d-flex align-items-start mb-3">
+                            <div className="bg-primary bg-opacity-10 rounded-circle p-2 me-3">
+                              <i className="fas fa-3 text-primary"></i>
+                            </div>
+                            <div>
+                              <strong>Keep it Short</strong>
+                              <p className="small text-muted mb-0">1-2 minutes is usually enough</p>
+                            </div>
+                          </div>
+                        </Col>
+                      </Row>
                     </div>
-                  )}
-                </Form.Group>
+                    
+                    <div className="mt-4 text-center">
+                      <Button
+                        variant="outline-primary"
+                        onClick={() => setActiveTab('form')}
+                        className="px-5"
+                      >
+                        <i className="fas fa-arrow-left me-2"></i>
+                        Back to Ticket Form
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
 
-                {/* Submit Button */}
-                <div className="pt-4 border-top">
-                  <Button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-100 py-3 fw-bold fs-5"
-                    style={{
-                      background: 'linear-gradient(135deg, #ffa600 0%, #ff8f00 100%)',
-                      border: 'none'
-                    }}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Creating Ticket...
-                      </>
-                    ) : (
-                      <>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" className="bi bi-send me-2" viewBox="0 0 16 16">
-                          <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z"/>
-                        </svg>
-                        Submit Ticket
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </Form>
+              {/* FAQ Section */}
+              <Accordion className="mt-5">
+                <Accordion.Item eventKey="0">
+                  <Accordion.Header>
+                    <i className="fas fa-question-circle me-2"></i>
+                    Why should I record my screen?
+                  </Accordion.Header>
+                  <Accordion.Body>
+                    Screen recordings help our developers see exactly what's happening, which:
+                    <ul className="mt-2 mb-0">
+                      <li>Reduces back-and-forth communication</li>
+                      <li>Helps identify issues faster</li>
+                      <li>Provides visual context that text can't capture</li>
+                      <li>Shows error messages in real-time</li>
+                      <li>Demonstrates user workflows that might have issues</li>
+                    </ul>
+                  </Accordion.Body>
+                </Accordion.Item>
+                <Accordion.Item eventKey="1">
+                  <Accordion.Header>
+                    <i className="fas fa-shield-alt me-2"></i>
+                    Is my screen recording secure?
+                  </Accordion.Header>
+                  <Accordion.Body>
+                    Yes, your screen recordings are secure:
+                    <ul className="mt-2 mb-0">
+                      <li>Recordings are stored only on your device until you choose to attach them</li>
+                      <li>We never access your screen without your permission</li>
+                      <li>Recordings are only shared with authorized support staff</li>
+                      <li>You can delete recordings at any time</li>
+                      <li>No third-party has access to your recordings</li>
+                    </ul>
+                  </Accordion.Body>
+                </Accordion.Item>
+              </Accordion>
             </Card.Body>
           </Card>
         </Col>

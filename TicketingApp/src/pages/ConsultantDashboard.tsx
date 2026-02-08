@@ -28,7 +28,7 @@ const ConsultantDashboard: React.FC = () => {
             <div>
               <h1 className="h3 mb-2">Consultant Dashboard</h1>
               <p className="text-muted mb-0">
-                Welcome, {user?.name || user?.email}!
+                Welcome, {user?.fullName || user?.email}!
               </p>
             </div>
             <Button variant="outline-danger" onClick={handleLogout}>

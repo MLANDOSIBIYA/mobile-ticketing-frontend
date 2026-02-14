@@ -1,2 +1,2 @@
 # mobile-ticketing-frontend
-React Native mobile app for the Mobile Ticketing System
+Typescript for the Ticketing System
